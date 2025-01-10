@@ -3,12 +3,18 @@ import os
 import zipfile
 import subprocess
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")  # Define static folder for frontend files
 
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "outputs"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+@app.route("/")
+def home():
+    """Serve the main UI."""
+    return send_from_directory(app.static_folder, "index.html")
+
 
 @app.route("/process", methods=["POST"])
 def process_videos():
@@ -55,6 +61,12 @@ def download_file(filename):
     if not os.path.exists(zip_file_path):
         return jsonify({"error": "ZIP file not found"}), 404
     return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
+
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    """Serve static files like JS, CSS, etc."""
+    return send_from_directory(app.static_folder, filename)
 
 
 if __name__ == "__main__":
