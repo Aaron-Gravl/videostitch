@@ -55,7 +55,7 @@ def process_videos():
     output_zip_path = os.path.join(user_folder, "concatenated_videos.zip")
     concatenated_videos = []
 
-        try:
+try:
     with zipfile.ZipFile(output_zip_path, "w") as zipf:
         for hook in hooks:
             for body in bodies:
