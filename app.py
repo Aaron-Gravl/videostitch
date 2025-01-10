@@ -1,104 +1,77 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_from_directory, render_template
 import os
 import zipfile
 import subprocess
 
-app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-
-# Ensure the upload folder exists
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+app = Flask(__name__, static_folder="static")
+UPLOAD_FOLDER = "uploads"
+OUTPUT_FOLDER = "outputs"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 @app.route('/')
 def home():
-    return "Video Stitcher API is running."
+    return send_from_directory('static', 'index.html')
 
 @app.route('/upload', methods=['POST'])
-def upload_file():
-    try:
-        file_type = request.args.get('type')
-        user_id = request.args.get('user_id', 'default_user')
+def upload_files():
+    user_id = request.args.get('user_id', 'default_user')
+    upload_type = request.args.get('type')  # hooks, bodies, ctas
+    user_folder = os.path.join(UPLOAD_FOLDER, user_id, upload_type)
+    os.makedirs(user_folder, exist_ok=True)
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
 
-        if file_type not in ['hooks', 'bodies', 'ctas']:
-            return jsonify({"error": "Invalid file type"}), 400
-
-        user_folder = os.path.join(UPLOAD_FOLDER, user_id)
-        if not os.path.exists(user_folder):
-            os.makedirs(user_folder)
-
-        uploaded_files = request.files.getlist('files')
-        if not uploaded_files:
-            return jsonify({"error": "No files uploaded"}), 400
-
-        saved_files = []
-        for file in uploaded_files:
-            file_path = os.path.join(user_folder, file.filename)
-            file.save(file_path)
-            saved_files.append(file.filename)
-
-        return jsonify({"message": "Files uploaded successfully", "files": saved_files}), 200
-    except Exception as e:
-        return jsonify({"error": "An error occurred during file upload", "details": str(e)}), 500
+    file_path = os.path.join(user_folder, file.filename)
+    file.save(file_path)
+    return jsonify({"message": "File uploaded successfully", "path": file_path})
 
 @app.route('/process', methods=['POST'])
 def process_videos():
-    try:
-        user_id = request.form.get('user_id', 'default_user')
-        user_folder = os.path.join(UPLOAD_FOLDER, user_id)
+    user_id = request.args.get('user_id', 'default_user')
+    user_folder = os.path.join(UPLOAD_FOLDER, user_id)
+    output_zip_path = os.path.join(OUTPUT_FOLDER, f"{user_id}_videos.zip")
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-        hooks = request.form.getlist('hooks[]')
-        bodies = request.form.getlist('bodies[]')
-        ctas = request.form.getlist('ctas[]')
+    hooks = os.listdir(os.path.join(user_folder, 'hooks'))
+    bodies = os.listdir(os.path.join(user_folder, 'bodies'))
+    ctas = os.listdir(os.path.join(user_folder, 'ctas'))
 
-        if not hooks or not bodies or not ctas:
-            return jsonify({"error": "Missing hooks, bodies, or CTAs"}), 400
+    with zipfile.ZipFile(output_zip_path, "w") as zipf:
+        for hook in hooks:
+            for body in bodies:
+                for cta in ctas:
+                    hook_path = os.path.join(user_folder, 'hooks', hook)
+                    body_path = os.path.join(user_folder, 'bodies', body)
+                    cta_path = os.path.join(user_folder, 'ctas', cta)
+                    output_file = f"{os.path.splitext(hook)[0]}_{os.path.splitext(body)[0]}_{os.path.splitext(cta)[0]}.mp4"
+                    output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-        output_zip_path = os.path.join(user_folder, "concatenated_videos.zip")
-        concatenated_videos = []
+                    cmd = [
+                        'ffmpeg',
+                        '-i', hook_path,
+                        '-i', body_path,
+                        '-i', cta_path,
+                        '-filter_complex', 'concat=n=3:v=1:a=1',
+                        output_path
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
 
-        with zipfile.ZipFile(output_zip_path, "w") as zipf:
-            for hook in hooks:
-                for body in bodies:
-                    for cta in ctas:
-                        output_file = os.path.join(user_folder, f"{hook}_{body}_{cta}.mp4")
-                        cmd = [
-                            'ffmpeg',
-                            '-i', os.path.join(user_folder, hook),
-                            '-i', os.path.join(user_folder, body),
-                            '-i', os.path.join(user_folder, cta),
-                            '-filter_complex', 'concat=n=3:v=1:a=1',
-                            output_file
-                        ]
-                        print(f"Running command: {' '.join(cmd)}")  # Debug log
-                        result = subprocess.run(cmd, capture_output=True, text=True)
-                        if result.returncode == 0:
-                            print(f"Created video: {output_file}")
-                            zipf.write(output_file, arcname=os.path.basename(output_file))
-                            concatenated_videos.append(output_file)
-                        else:
-                            print(f"FFmpeg error: {result.stderr}")
-                            return jsonify({"error": "Error processing video", "details": result.stderr}), 500
+                    if result.returncode == 0:
+                        zipf.write(output_path, os.path.basename(output_path))
+                    else:
+                        return jsonify({"error": f"FFmpeg failed: {result.stderr}"}), 500
 
-        return jsonify({"message": "Videos processed successfully", "download_url": f"/download?user_id={user_id}"}), 200
+    return jsonify({"message": "Processing completed", "zip_path": output_zip_path})
 
-    except Exception as e:
-        print(f"Error processing videos: {str(e)}")
-        return jsonify({"error": "An error occurred during video processing", "details": str(e)}), 500
-
-@app.route('/download', methods=['GET'])
-def download_zip():
-    try:
-        user_id = request.args.get('user_id', 'default_user')
-        user_folder = os.path.join(UPLOAD_FOLDER, user_id)
-        zip_path = os.path.join(user_folder, "concatenated_videos.zip")
-
-        if not os.path.exists(zip_path):
-            return jsonify({"error": "ZIP file not found"}), 404
-
-        return send_file(zip_path, as_attachment=True)
-    except Exception as e:
-        return jsonify({"error": "An error occurred during file download", "details": str(e)}), 500
+@app.route('/download/<path:filename>', methods=['GET'])
+def download_file(filename):
+    return send_from_directory(OUTPUT_FOLDER, filename)
 
 if __name__ == '__main__':
     app.run(debug=True)
