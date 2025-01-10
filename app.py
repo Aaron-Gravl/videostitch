@@ -10,6 +10,11 @@ OUTPUT_FOLDER = "outputs"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+@app.route("/")
+def home():
+    """Serve the main page."""
+    return send_from_directory("static", "index.html")
+
 @app.route("/upload", methods=["POST"])
 def upload_files():
     """Upload video files to the server."""
