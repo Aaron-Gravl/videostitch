@@ -1,94 +1,84 @@
+from flask import Flask, request, jsonify, send_from_directory
 import os
 import zipfile
-import glob
-from flask import Flask, request, jsonify, send_file
+import subprocess
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 
-@app.route('/')
+UPLOAD_FOLDER = 'uploads'
+OUTPUT_FOLDER = 'outputs'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+
+@app.route("/")
 def home():
-    return "Video Stitcher API is running."
+    """Serve the index.html file."""
+    return send_from_directory(app.static_folder, 'index.html')
 
-@app.route('/upload', methods=['POST'])
+
+@app.route("/upload", methods=["POST"])
 def upload():
-    user_id = request.args.get('user_id', 'default_user')
-    upload_type = request.args.get('type')
-    
-    if not upload_type or upload_type not in ['hooks', 'bodies', 'ctas']:
-        return jsonify({"error": "Invalid upload type."}), 400
-
-    user_folder = os.path.join('uploads', user_id, upload_type)
+    """Handle file uploads."""
+    user_id = request.args.get("user_id", "default_user")
+    file_type = request.args.get("type", "unknown")
+    user_folder = os.path.join(UPLOAD_FOLDER, user_id)
     os.makedirs(user_folder, exist_ok=True)
 
-    for file in request.files.getlist('file'):
-        file_path = os.path.join(user_folder, file.filename)
-        file.save(file_path)
-        print(f"Uploaded file: {file_path}")
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
 
-    return jsonify({"success": True}), 200
+    file = request.files["file"]
+    file_path = os.path.join(user_folder, f"{file_type}_{file.filename}")
+    file.save(file_path)
 
-@app.route('/process', methods=['POST'])
+    return jsonify({"message": f"File {file.filename} uploaded successfully"})
+
+
+@app.route("/process", methods=["POST"])
 def process_videos():
-    user_folder = 'uploads/default_user'
-    hooks = glob.glob(os.path.join(user_folder, "hooks", "*"))
-    bodies = glob.glob(os.path.join(user_folder, "bodies", "*"))
-    ctas = glob.glob(os.path.join(user_folder, "ctas", "*"))
+    """Process uploaded videos and create a concatenated zip file."""
+    user_id = request.args.get("user_id", "default_user")
+    user_folder = os.path.join(UPLOAD_FOLDER, user_id)
+    output_zip_path = os.path.join(OUTPUT_FOLDER, f"{user_id}_videos.zip")
 
-    if not hooks or not bodies or not ctas:
-        print("Error: Missing uploaded videos in one or more categories.")
-        return jsonify({"error": "Missing uploaded videos in one or more categories."}), 400
+    hooks = [os.path.join(user_folder, f) for f in os.listdir(user_folder) if f.startswith("hooks")]
+    bodies = [os.path.join(user_folder, f) for f in os.listdir(user_folder) if f.startswith("bodies")]
+    ctas = [os.path.join(user_folder, f) for f in os.listdir(user_folder) if f.startswith("ctas")]
 
-    output_folder = 'outputs'
-    os.makedirs(output_folder, exist_ok=True)
-
-    output_zip_path = os.path.join(output_folder, "concatenated_videos.zip")
-    concatenated_videos = []
-
-    try:
-        with zipfile.ZipFile(output_zip_path, "w") as zipf:
-            for hook in hooks:
-                for body in bodies:
-                    for cta in ctas:
-                        output_file = os.path.join(output_folder, f"{os.path.basename(hook)}_{os.path.basename(body)}_{os.path.basename(cta)}.mp4")
-
-                        # Simulate concatenation (replace this with actual ffmpeg logic)
-                        with open(output_file, "w") as f:
-                            f.write("Simulated video content")
-
-                        concatenated_videos.append(output_file)
+    with zipfile.ZipFile(output_zip_path, "w") as zipf:
+        for hook in hooks:
+            for body in bodies:
+                for cta in ctas:
+                    output_file = os.path.join(user_folder, f"{os.path.basename(hook)}_{os.path.basename(body)}_{os.path.basename(cta)}.mp4")
+                    cmd = [
+                        "ffmpeg",
+                        "-i", hook,
+                        "-i", body,
+                        "-i", cta,
+                        "-filter_complex", "concat=n=3:v=1:a=1",
+                        "-y", output_file
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0:
                         zipf.write(output_file, os.path.basename(output_file))
+                    else:
+                        return jsonify({"error": f"FFmpeg error: {result.stderr}"}), 500
 
-        if os.path.exists(output_zip_path):
-            print(f"ZIP file created: {output_zip_path}")
-            print(f"ZIP file size: {os.path.getsize(output_zip_path)} bytes")
-        else:
-            print("Error: ZIP file was not created!")
-            return jsonify({"error": "Failed to create ZIP file."}), 500
+    return jsonify({"message": "Videos processed successfully", "zip_path": output_zip_path})
 
-    except Exception as e:
-        print(f"Error during video processing: {e}")
-        return jsonify({"error": "Error during video processing."}), 500
 
-    return jsonify({"zip_path": "concatenated_videos.zip"}), 200
+@app.route("/download/<path:filename>", methods=["GET"])
+def download_file(filename):
+    """Serve the zip file for download."""
+    return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
 
-@app.route('/download/<path:filename>', methods=['GET'])
-def download(filename):
-    output_folder = 'outputs'
-    file_path = os.path.join(output_folder, filename)
 
-    if not os.path.exists(file_path):
-        print(f"Error: File not found - {file_path}")
-        return jsonify({"error": "File not found"}), 404
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    """Serve static files such as CSS and JS."""
+    return send_from_directory(app.static_folder, filename)
 
-    if os.path.getsize(file_path) == 0:
-        print("Error: ZIP file is empty!")
-        return jsonify({"error": "ZIP file is empty"}), 400
-
-    try:
-        return send_file(file_path, as_attachment=True)
-    except Exception as e:
-        print(f"Error in serving file: {e}")
-        return jsonify({"error": "Failed to send file"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
