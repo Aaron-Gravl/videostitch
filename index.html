@@ -10,140 +10,91 @@
             background-color: #f8f9fa;
             font-family: Arial, sans-serif;
         }
-        #uploadSection {
-            margin-top: 50px;
+        .upload-section {
+            margin: 20px auto;
             padding: 20px;
             background: white;
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .progress-bar {
-            height: 30px;
-            width: 0;
-            transition: width 0.3s ease-in-out;
+        .upload-label {
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .btn-process {
+            margin-top: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="uploadSection" class="mx-auto col-md-8">
+        <div class="upload-section col-md-8 mx-auto">
             <h1 class="text-center">Video Stitcher</h1>
-            <p class="text-muted text-center">Upload your video files to create seamless combinations.</p>
+            <p class="text-center text-muted">Upload your Hooks, Bodies, and CTAs to create seamless combinations.</p>
 
-            <!-- Drag and Drop Area -->
-            <label class="custom-file-upload w-100 mb-3">
-                <input type="file" id="files" name="files" class="form-control" multiple accept="video/*">
-                Drag & Drop your files here or Click to Upload
-            </label>
-            <button id="processButton" class="btn btn-primary w-100 mt-3" onclick="processVideos()">Process Videos</button>
-
-            <!-- Progress Bar -->
-            <div class="mt-4">
-                <h5>Processing Progress:</h5>
-                <div class="progress">
-                    <div id="progressBar" class="progress-bar bg-success" role="progressbar"></div>
-                </div>
-                <p id="progressText" class="mt-2">0% completed</p>
+            <!-- Hooks Upload -->
+            <div class="mb-3">
+                <label for="hooks" class="upload-label">Hooks</label>
+                <input type="file" id="hooks" name="hooks" class="form-control" multiple accept="video/*">
             </div>
 
-            <!-- Uploaded Files Section -->
-            <div class="mt-4">
-                <h5>Uploaded Files:</h5>
-                <ul id="fileList" class="list-group"></ul>
+            <!-- Bodies Upload -->
+            <div class="mb-3">
+                <label for="bodies" class="upload-label">Bodies</label>
+                <input type="file" id="bodies" name="bodies" class="form-control" multiple accept="video/*">
             </div>
+
+            <!-- CTAs Upload -->
+            <div class="mb-3">
+                <label for="ctas" class="upload-label">CTAs</label>
+                <input type="file" id="ctas" name="ctas" class="form-control" multiple accept="video/*">
+            </div>
+
+            <!-- Process Button -->
+            <button id="processButton" class="btn btn-primary btn-process w-100" onclick="processVideos()">Process Videos</button>
+
+            <!-- Progress Feedback -->
+            <div class="mt-4" id="feedback"></div>
         </div>
     </div>
 
     <script>
-        const fileInput = document.getElementById("files");
-        const fileList = document.getElementById("fileList");
-        const progressBar = document.getElementById("progressBar");
-        const progressText = document.getElementById("progressText");
-
-        const uploadedFiles = [];
-
-        // Handle File Input Changes
-        fileInput.addEventListener("change", async () => {
-            const files = Array.from(fileInput.files);
-            const formData = new FormData();
-            files.forEach(file => {
-                formData.append('files', file);
-                uploadedFiles.push(file.name);
-                const listItem = document.createElement("li");
-                listItem.className = "list-group-item";
-                listItem.textContent = file.name;
-                fileList.appendChild(listItem);
-            });
-
-            // Send files to the backend
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-                alert(result.message);
-                console.log("Files uploaded:", uploadedFiles);
-            } catch (error) {
-                console.error("Error uploading files:", error);
-                alert("Failed to upload files. Check the console for details.");
-            }
-        });
-
-        // Process Videos Function
         async function processVideos() {
-            console.log("Processing videos..."); // Debugging message to verify button click
+            const hooks = Array.from(document.getElementById("hooks").files);
+            const bodies = Array.from(document.getElementById("bodies").files);
+            const ctas = Array.from(document.getElementById("ctas").files);
 
-            // Filter files into hooks, bodies, and ctas
-            const hooks = uploadedFiles.filter(file => file.includes('hook'));
-            const bodies = uploadedFiles.filter(file => file.includes('body'));
-            const ctas = uploadedFiles.filter(file => file.includes('cta'));
-
-            console.log("Hooks:", hooks); // Debugging hooks
-            console.log("Bodies:", bodies); // Debugging bodies
-            console.log("CTAs:", ctas); // Debugging CTAs
-
-            // Check if sufficient files have been uploaded
-            if (hooks.length === 0 || bodies.length === 0 || ctas.length === 0) {
-                alert("Please ensure at least one hook, body, and CTA are uploaded.");
+            if (!hooks.length || !bodies.length || !ctas.length) {
+                alert("Please upload files for Hooks, Bodies, and CTAs.");
                 return;
             }
 
-            try {
-                // Update progress UI
-                progressBar.style.width = "0%";
-                progressText.textContent = "0% completed";
+            const formData = new FormData();
+            hooks.forEach(file => formData.append("hooks", file));
+            bodies.forEach(file => formData.append("bodies", file));
+            ctas.forEach(file => formData.append("ctas", file));
 
-                // Send a POST request to process videos
+            document.getElementById("feedback").textContent = "Processing videos...";
+
+            try {
                 const response = await fetch('/process', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ hooks, bodies, ctas }),
+                    body: formData
                 });
-
                 const result = await response.json();
-                console.log("Server response:", result); // Debug server response
-
-                // Handle the result
-                if (result.message === "Videos processed!") {
-                    alert(`${result.files.length} videos processed successfully! Check the outputs folder.`);
-                    progressBar.style.width = "100%";
-                    progressText.textContent = "100% completed";
+                if (result.download_url) {
+                    document.getElementById("feedback").innerHTML = `
+                        <p>Videos processed successfully!</p>
+                        <a href="${result.download_url}" class="btn btn-success">Download ZIP</a>
+                    `;
                 } else {
-                    alert("An error occurred while processing the videos.");
+                    alert(result.error || "An error occurred while processing videos.");
                 }
             } catch (error) {
-                console.error("Error processing videos:", error); // Log error details
-                alert("Failed to process videos. Check the console for details.");
+                console.error("Error processing videos:", error);
+                alert("An error occurred. Check the console for details.");
             }
         }
     </script>
 </body>
 </html>
-
-
-
-
