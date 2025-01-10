@@ -72,4 +72,5 @@ def process_videos():
                         print(f"Running command: {' '.join(cmd)}")  # Debugging log
                         result = subprocess.run(cmd, capture_output=True, text=True)
                         if result.returncode == 0:
-                            print(f"Created video: {out
+                           print(f"Created video: {out}")
+
