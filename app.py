@@ -56,21 +56,28 @@ def process_videos():
     concatenated_videos = []
 
     try:
-        with zipfile.ZipFile(output_zip_path, "w") as zipf:
-            for hook in hooks:
-                for body in bodies:
-                    for cta in ctas:
-                        output_file = os.path.join(user_folder, f"{hook}_{body}_{cta}.mp4")
-                        cmd = [
-                            'ffmpeg',
-                            '-i', os.path.join(user_folder, hook),
-                            '-i', os.path.join(user_folder, body),
-                            '-i', os.path.join(user_folder, cta),
-                            '-filter_complex', 'concat=n=3:v=1:a=1',
-                            output_file
-                        ]
-                        print(f"Running command: {' '.join(cmd)}")  # Debugging log
-                        result = subprocess.run(cmd, capture_output=True, text=True)
-                        if result.returncode == 0:
-                           print(f"Created video: {out}")
+    with zipfile.ZipFile(output_zip_path, "w") as zipf:
+        for hook in hooks:
+            for body in bodies:
+                for cta in ctas:
+                    output_file = os.path.join(user_folder, f"{hook}_{body}_{cta}.mp4")
+                    cmd = [
+                        'ffmpeg',
+                        '-i', os.path.join(user_folder, hook),
+                        '-i', os.path.join(user_folder, body),
+                        '-i', os.path.join(user_folder, cta),
+                        '-filter_complex', 'concat=n=3:v=1:a=1',
+                        output_file
+                    ]
+                    print(f"Running command: {' '.join(cmd)}")  # Debugging log
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        print(f"Created video: {output_file}")
+                        zipf.write(output_file, os.path.basename(output_file))
+                    else:
+                        print(f"Error creating video: {result.stderr}")
+except Exception as e:
+    print(f"An error occurred during video processing: {e}")
+finally:
+    print("Processing completed.")
 
