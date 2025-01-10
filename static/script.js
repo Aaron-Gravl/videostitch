@@ -3,39 +3,55 @@ document.getElementById("processBtn").addEventListener("click", async () => {
     const bodies = document.getElementById("bodies").files;
     const ctas = document.getElementById("ctas").files;
 
-    if (hooks.length === 0 || bodies.length === 0 || ctas.length === 0) {
-        document.getElementById("status").innerText = "Please upload all required videos.";
-        return;
-    }
+    const uploadFiles = async (files) => {
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append("file", file);
+        }
 
-    // Prepare file data
-    const formData = new FormData();
-    for (const file of hooks) formData.append("hooks", file.name);
-    for (const file of bodies) formData.append("bodies", file.name);
-    for (const file of ctas) formData.append("ctas", file.name);
+        const response = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+        });
 
-    document.getElementById("status").innerText = "Processing videos...";
-    
-    // Send process request
-    const response = await fetch("/process", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            hooks: Array.from(hooks).map(file => file.name),
-            bodies: Array.from(bodies).map(file => file.name),
-            ctas: Array.from(ctas).map(file => file.name),
-        }),
-    });
+        if (!response.ok) {
+            throw new Error("Error uploading files");
+        }
 
-    const result = await response.json();
+        return response.json();
+    };
 
-    if (result.zip_path) {
+    try {
+        // Step 1: Upload Hooks, Bodies, and CTAs
+        document.getElementById("status").innerText = "Uploading files...";
+        if (hooks.length > 0) await uploadFiles(hooks);
+        if (bodies.length > 0) await uploadFiles(bodies);
+        if (ctas.length > 0) await uploadFiles(ctas);
+
+        // Step 2: Process Videos
+        document.getElementById("status").innerText = "Processing videos...";
+        const response = await fetch("/process", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                hooks: Array.from(hooks).map((file) => file.name),
+                bodies: Array.from(bodies).map((file) => file.name),
+                ctas: Array.from(ctas).map((file) => file.name),
+            }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || "Error processing videos");
+        }
+
+        // Step 3: Provide Download Link
         document.getElementById("status").innerHTML = `
             <a href="/download/${result.zip_path}" download>Download Processed Videos</a>
         `;
-    } else {
-        document.getElementById("status").innerText = "Error processing videos. Please try again.";
+    } catch (error) {
+        document.getElementById("status").innerText = error.message;
     }
 });
